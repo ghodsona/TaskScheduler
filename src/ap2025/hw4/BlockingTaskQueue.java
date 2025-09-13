@@ -18,12 +18,14 @@ public class BlockingTaskQueue {
         this.globalTaskNotificationLock = globalTaskNotificationLock;
     }
 
-    public synchronized void put(Task task) throws InterruptedException {
-        while (queue.size() == capacity) {
-            wait();
+    public void put(Task task) throws InterruptedException {
+        synchronized (this) {
+            while (queue.size() == capacity) {
+                wait();
+            }
+            queue.add(task);
+            notifyAll();
         }
-        queue.add(task);
-        notifyAll();
         synchronized (globalTaskNotificationLock) {
             globalTaskNotificationLock.notifyAll();
         }

@@ -4,58 +4,59 @@ import java.util.LinkedList;
 import java.util.List;
 
 public class BlockingTaskQueue {
-    private final List<Task> queue;
-    private final int capacity;
-    private final Object globalTaskNotificationLock;
+    private final List<Task> list;
+    private final int maxSize;
+    private final Object mainLock;
 
 
-    public BlockingTaskQueue(int capacity, Object globalTaskNotificationLock) {
+    public BlockingTaskQueue(int capacity, Object globalLock) {
         if (capacity <= 0) {
-            throw new IllegalArgumentException("Capacity must be positive for the queue.");
+            throw new IllegalArgumentException("size must be > 0");
         }
-        this.queue = new LinkedList<>();
-        this.capacity = capacity;
-        this.globalTaskNotificationLock = globalTaskNotificationLock;
+        this.list = new LinkedList<>();
+        this.maxSize = capacity;
+        this.mainLock = globalLock;
     }
 
     public void put(Task task) throws InterruptedException {
+        // block for adding item to list
         synchronized (this) {
-            while (queue.size() == capacity) {
-                wait();
+            while (list.size() == maxSize) {
+                wait(); // wait if list is full
             }
-            queue.add(task);
-            notifyAll();
+            list.add(task);
+            notifyAll(); // tell other threads
         }
-        synchronized (globalTaskNotificationLock) {
-            globalTaskNotificationLock.notifyAll();
+
+        // block for waking up workers
+        synchronized (mainLock) {
+            mainLock.notifyAll();
         }
     }
 
     public synchronized Task take() throws InterruptedException {
-        // TODO: ap2025.hw4.BlockingTaskQueue take method (blocking)
-        while (queue.isEmpty()) {
+        while (list.isEmpty()) {
             wait();
         }
-        Task task = queue.remove(0);
+        Task task = list.remove(0);
         notifyAll();
         return task;
     }
 
     public synchronized Task poll() {
-        // TODO: ap2025.hw4.BlockingTaskQueue poll method (non-blocking)
-        if (queue.isEmpty()) {
+        if (list.isEmpty()) {
             return null;
         }
-        Task task = queue.remove(0);
+        Task task = list.remove(0);
         notifyAll();
         return task;
     }
 
     public synchronized boolean isEmpty() {
-        return queue.isEmpty();
+        return list.isEmpty();
     }
 
     public synchronized int size() {
-        return queue.size();
+        return list.size();
     }
 }

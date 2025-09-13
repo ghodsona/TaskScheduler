@@ -4,69 +4,72 @@ import java.util.Map;
 import java.util.Random;
 
 public class TaskConsumer implements Runnable {
-    private final Map<Priority, BlockingTaskQueue> priorityQueues;
-    private final int workerId;
-    private final Object globalTaskNotificationLock;
+    private final Map<Priority, BlockingTaskQueue> allQueues;
+    private final int workerNum; // workerId -> workerNum
+    private final Object mainLock;
 
 
     public TaskConsumer(Map<Priority, BlockingTaskQueue> priorityQueues, int workerId, Object globalTaskNotificationLock) {
-        this.priorityQueues = priorityQueues;
-        this.workerId = workerId;
-        this.globalTaskNotificationLock = globalTaskNotificationLock;
+        this.allQueues = priorityQueues;
+        this.workerNum = workerId;
+        this.mainLock = globalTaskNotificationLock;
     }
 
-    volatile boolean shutdownSignalReceived = false;
+    volatile boolean isStopping = false; // A simpler flag name
 
     @Override
     public void run() {
-        System.out.println("Worker " + workerId + " (Thread: " + Thread.currentThread().getName() + ") started.");
+        System.out.println("Worker " + workerNum + " begin.");
         Random random = new Random();
 
         try {
             while (true) {
-                Task task = null;
+                Task job = null; // task -> job
 
-                synchronized (globalTaskNotificationLock) {
-                    while ((task = attemptTakeByPriority()) == null) {
-                        if (shutdownSignalReceived && areAllQueuesEmpty()) {
-                            System.out.println("Worker " + workerId + " shutting down as all queues are empty.");
+                synchronized (mainLock) {
+                    while ((job = getOneJob()) == null) { // findNextTask -> getOneJob
+                        if (isStopping && areAllQueuesEmpty()) {
+                            System.out.println("Worker " + workerNum + " is stopping.");
                             return;
                         }
-                        globalTaskNotificationLock.wait();
+                        mainLock.wait();
                     }
                 }
 
-                if (task.isCancelled()) {
-                    System.out.println("Worker " + workerId + " skipped cancelled " + task);
+                if (job.isCancelled()) {
+                    System.out.println("Worker " + workerNum + " skip cancelled job " + job.getId());
                     continue;
                 }
 
-                System.out.println("Worker " + workerId + " retrieved " + task);
-                System.out.println("Worker " + workerId + " is processing " + task);
-                Thread.sleep(random.nextInt(401) + 100);
-                System.out.println("Worker " + workerId + " finished processing " + task);
+                System.out.println("Worker " + workerNum + " got job " + job.getId());
+                Thread.sleep(random.nextInt(401) + 100); // simulate work
+                System.out.println("Worker " + workerNum + " finished job " + job.getId());
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            System.err.println("Worker " + workerId + " was interrupted. Shutting down.");
+            System.err.println("Worker " + workerNum + " interrupted.");
         }
-        System.out.println("Worker " + workerId + " finished run method.");
     }
 
-    private Task attemptTakeByPriority() {
-        Task task = priorityQueues.get(Priority.HIGH).poll();
-        if (task != null) return task;
+    // Back to a simple if-else structure instead of a loop
+    private Task getOneJob() {
+        Task t = allQueues.get(Priority.HIGH).poll();
+        if (t != null) {
+            return t;
+        }
 
-        task = priorityQueues.get(Priority.MEDIUM).poll();
-        if (task != null) return task;
+        t = allQueues.get(Priority.MEDIUM).poll();
+        if (t != null) {
+            return t;
+        }
 
-        task = priorityQueues.get(Priority.LOW).poll();
-        return task;
+        t = allQueues.get(Priority.LOW).poll();
+        return t;
     }
 
     private boolean areAllQueuesEmpty() {
         for (Priority p : Priority.values()) {
-            if (!priorityQueues.get(p).isEmpty()) {
+            if (!allQueues.get(p).isEmpty()) {
                 return false;
             }
         }
@@ -74,9 +77,9 @@ public class TaskConsumer implements Runnable {
     }
 
     public void signalShutdown() {
-        shutdownSignalReceived = true;
-        synchronized (globalTaskNotificationLock) {
-            globalTaskNotificationLock.notifyAll();
+        isStopping = true;
+        synchronized (mainLock) {
+            mainLock.notifyAll();
         }
     }
 }

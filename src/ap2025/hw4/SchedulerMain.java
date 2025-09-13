@@ -6,64 +6,67 @@ import java.util.List;
 import java.util.Map;
 
 public class SchedulerMain {
-    public static final Object globalTaskNotificationLock = new Object();
+    public static final Object THE_LOCK = new Object();
 
     public static void main(String[] args) {
-        final int NUM_PRODUCERS = 10;
-        final int NUM_CONSUMERS = 2;
-        final int TASKS_PER_PRODUCER = 10;
-        final int QUEUE_CAPACITY = 3;
+        // Configs
+        final int MAKERS = 10;
+        final int TAKERS = 2;
+        final int JOBS_PER_MAKER = 10;
+        final int Q_SIZE = 3;
 
-        Map<Priority, BlockingTaskQueue> priorityQueues = new HashMap<>();
+        Map<Priority, BlockingTaskQueue> allQueues = new HashMap<>();
         for (Priority p : Priority.values()) {
-            priorityQueues.put(p, new BlockingTaskQueue(QUEUE_CAPACITY, globalTaskNotificationLock));
+            allQueues.put(p, new BlockingTaskQueue(Q_SIZE, THE_LOCK));
         }
 
-        List<Thread> producerThreads = new ArrayList<>();
+        // Make and run producer threads
+        List<Thread> makerThreads = new ArrayList<>();
         List<TaskProducer> producers = new ArrayList<>();
-        for (int i = 0; i < NUM_PRODUCERS; i++) {
-            TaskProducer producer = new TaskProducer(priorityQueues, i + 1, TASKS_PER_PRODUCER);
-            producers.add(producer);
-            Thread thread = new Thread(producer);
-            producerThreads.add(thread);
-            thread.start();
+        for (int i = 0; i < MAKERS; i++) {
+            TaskProducer p = new TaskProducer(allQueues, i + 1, JOBS_PER_MAKER);
+            producers.add(p);
+            Thread t = new Thread(p);
+            makerThreads.add(t);
+            t.start();
         }
 
-        List<Thread> consumerThreads = new ArrayList<>();
+        // Make and run consumer threads
+        List<Thread> takerThreads = new ArrayList<>();
         List<TaskConsumer> consumers = new ArrayList<>();
-        for (int i = 0; i < NUM_CONSUMERS; i++) {
-            TaskConsumer consumer = new TaskConsumer(priorityQueues, i + 1, globalTaskNotificationLock);
-            consumers.add(consumer);
-            Thread thread = new Thread(consumer);
-            consumerThreads.add(thread);
-            thread.start();
+        for (int i = 0; i < TAKERS; i++) {
+            TaskConsumer c = new TaskConsumer(allQueues, i + 1, THE_LOCK);
+            consumers.add(c);
+            Thread t = new Thread(c);
+            takerThreads.add(t);
+            t.start();
         }
 
-        for (Thread thread : producerThreads) {
+        // Wait for makers to finish
+        for (Thread t : makerThreads) {
             try {
-                thread.join();
+                t.join();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
         }
-        System.out.println("All producers have finished.");
+        System.out.println(">>> All makers are done.");
 
-
-        System.out.println("sending shutdown message to consumers...");
-        for (TaskConsumer consumer : consumers) {
-            consumer.signalShutdown();
+        // Tell takers to stop
+        System.out.println(">>> Sending stop signal to takers...");
+        for (TaskConsumer c : consumers) {
+            c.signalShutdown();
         }
 
-
-        for (Thread thread : consumerThreads) {
+        // Wait for takers to finish
+        for (Thread t : takerThreads) {
             try {
-                thread.join();
+                t.join();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
         }
 
-        System.out.println("all of consumers have shut down. FINISH!");
-
+        System.out.println(">>> All done. End of program.");
     }
 }
